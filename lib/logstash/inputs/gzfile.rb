@@ -386,6 +386,9 @@ class GzTail
 
   private
   def _read_file(path, &block)
+	link_src = path
+  	link_src = File.readlink(path) if File.symlink?(path)
+  	
     @buffers[path] ||= GzBufferedTokenizer.new(@opts[:delimiter])
     delimiter_byte_size = @opts[:delimiter].bytesize
     changed = false
@@ -395,7 +398,7 @@ class GzTail
         changed = true
         @buffers[path].extract(data).each do |line|
           @sincedb[@statcache[path]] += (line.bytesize + delimiter_byte_size)
-          yield(path, line, @sincedb[@statcache[path]])
+          yield(link_src, line, @sincedb[@statcache[path]])
         end
       rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
         break
@@ -443,11 +446,7 @@ class GzTail
   private
   def _sincedb_write
     path = @opts[:sincedb_path]
-    if File.device?(path)
-      IO.write(path, serialize_sincedb, 0)
-    else
-      File.atomic_write(path) {|file| file.write(serialize_sincedb) }
-    end
+    IO.write(path, serialize_sincedb, 0)
   end # def _sincedb_write
 
   public
@@ -598,7 +597,7 @@ class LogStash::Inputs::GzFile < LogStash::Inputs::Base
     @path.each { |path| @tail.tail(path) }
 
     @tail.subscribe do |path, line, pos|
-      @logger.debug? && @logger.debug("Received line", :path => path, :text => line)
+      @logger.debug? && @logger.debug("Received line", :path => path, :text => line, :position => pos)
       @codec.decode(line) do |event|
         event["[@metadata][path]"] = path
         event["host"] = @host if !event.include?("host")
